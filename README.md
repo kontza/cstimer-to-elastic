@@ -1,5 +1,5 @@
 # Introduction
-This Python script converts cstimer.net's session JSON output into format that can be imported into Elasticsearch.
+This Python script takes cstimer.net's session JSON output and uploads the solve times into an Elasticsearch instance.
 
 Input is of the form:
 ```
