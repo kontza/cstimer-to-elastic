@@ -15,15 +15,18 @@ logger = logging.getLogger(os.path.splitext(os.path.split(__file__)[-1])[0])
 logger.setLevel(logging.INFO)
 
 
-def convert_single_solve(solve):
+def convert_single_solve(solve, newer_than):
     fi_tz = pytz.timezone(os.getenv("SOLVE_TIMEZONE"))
+    solve_date_time = fi_tz.localize(datetime.datetime.fromtimestamp(solve[3]))
     solve_object = {
         "modifier": solve[0][0],
         "duration": solve[0][1],
         "scramble": '"{}"'.format(solve[1]),
         "comment": '"{}"'.format(solve[2]),
-        "solve_date_time": fi_tz.localize(datetime.datetime.fromtimestamp(solve[3])).isoformat().split("+")[0],
+        "solve_date_time": solve_date_time.isoformat().split("+")[0],
     }
+    if newer_than and solve_date_time <= newer_than:
+        return
     doc_id = "{}@{:07}".format(solve_object["solve_date_time"], solve_object["duration"])
     solve_object["duration"] /= 1000
     r = requests.put(
@@ -41,7 +44,7 @@ def convert_single_solve(solve):
         logger.error("[{}] Unexpected result: status code = {}, result = {}".format(doc_id, r.status_code, r.json()))
 
 
-def convert_solves(cstimer_export):
+def convert_solves(cstimer_export, newer_than):
     with open(cstimer_export, "r") as input_file:
         payload = json.load(input_file)
         for key in payload.keys():
@@ -49,13 +52,20 @@ def convert_solves(cstimer_export):
                 solves = payload[key]
                 if len(solves) > 0:
                     for solve in solves:
-                        convert_single_solve(solve)
+                        convert_single_solve(solve, newer_than)
 
 
 if __name__ == "__main__":
     dotenv.load_dotenv(verbose=True)
     parser = argparse.ArgumentParser(
         description="A CSTimer data importer to Elasticsearch. Set up ELASTICSEARCH_HOST environment variable prior running."
+    )
+    parser.add_argument(
+        "-t",
+        "--newer-than",
+        metavar="date-time",
+        type=str,
+        help="process only solves newer than the given ISO-8601 date & time",
     )
     parser.add_argument("cstimer_export", metavar="FILE", type=str, nargs="+", help="the file to process")
     args = parser.parse_args()
@@ -71,5 +81,10 @@ if __name__ == "__main__":
         logger.info("Index created with result {}".format(r.json()))
     else:
         logger.error("... Unexpected result: status code = {}, result = {}".format(r.status_code, r.json()))
+    fi_tz = pytz.timezone(os.getenv("SOLVE_TIMEZONE"))
     for cstimer_export in args.cstimer_export:
-        convert_solves(cstimer_export)
+        if args.newer_than:
+            newer_than = fi_tz.localize(datetime.datetime.fromisoformat(args.newer_than))
+        else:
+            newer_than = None
+        convert_solves(cstimer_export, newer_than)
